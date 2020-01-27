@@ -20,22 +20,28 @@ start:
         jsr $E544
 
         ldx #0
-        lda #'.'
--       sta $0400+(40-24)/2+5*40,x
+-       lda music_pattern,x
+        sta $0400+(40-24)/2+5*40,x
+        lda music_pattern+24,x
         sta $0400+(40-24)/2+6*40,x
+        lda music_pattern+24*2,x
         sta $0400+(40-24)/2+7*40,x
+        lda music_pattern+24*3,x
         sta $0400+(40-24)/2+8*40,x
         inx
         cpx #24
         bne -
 
         ; in de interrupt
+        sei
 --      lda $D012
         cmp #$80
         bne --
         inc $D020
+        inc $D021
         jsr music_play
         dec $D020
+        dec $D021
         jmp --
 
 ;---------------------------
@@ -49,74 +55,91 @@ music_init:
         bcc .music_init
 
 music_play:
-        ; copy SID registers from previous loop
-        ldx #0
--       lda SID,x
-        sta $D400,x
-        inx
-        cpx #$19
-        bne -
-
-        ; play pattern
-        ldx voice_0_pattern_offset
-        lda music_pattern,x
-        ; 0 = do nothing
-        beq .voice_done
-        cmp #$FF
-        bne .voice_not_FF
-        ; 255 = gate off
+        ; copy SID registers from previous call
+        lda SID+FREQL
+        sta $D400+FREQL
+        lda SID+FREQH
+        sta $D400+FREQH
         lda SID+WAVE
-        and #$FE
-        sta SID+WAVE
-.voice_not_FF:
-        cmp #16                      ; MAX #INSTR
-        bcs .voice_done
-        ; 1-15 = select instrument and restart wave table
-        sbc #0 ; 0..14
-        asl
-        asl
-        tax
-        ; ADSR
-        lda music_instr,x
-        sta SID+AD
-        lda music_instr+1,x
-        sta SID+SR
-        ; init wave table
-        lda music_instr+2,x
-        sta voice_0_wavetable_offset
-        ; frequency TODO now just max value for hihat (could come from wave table or pattern data)
-        lda #$FF
-        sta SID+FREQL
-        sta SID+FREQH
-        ; cycle wave table
-        ldx voice_0_wavetable_offset
-        lda music_wavetable,x
-        cmp #$FF
-        beq .voice_done
-        sta SID+WAVE
-        inc voice_0_wavetable_offset
-.voice_done:
-        rts
+        sta $D400+WAVE
+        lda SID+AD
+        sta $D400+AD
+        lda SID+SR
+        sta $D400+SR
+        clc
+        bcc pattern_play
 
 .music_init:
         lda #0
         tax
 -       sta SID,x
+        sta $D400,x
         inx
         cpx #$18
         bcc -
-        beq +
-        bne music_play
-+       lda #$0F                     ; master volume and filter mode
+        bne pattern_play
+        lda #$0F                        ; master volume and filter mode
         bne -
+
+pattern_play:
+        inc pattern_offset
+        ldx pattern_offset
+        cpx #24*4                       ; PATTERN LENGTH
+        bne +
+        ; restart pattern
+        lda #0
+        sta pattern_offset
+        tax
+
++       lda music_pattern,x
+        ; 0 = do nothing
+        beq wavetable_play
+        ; 255 = gate off
+        cmp #$FF
+        beq .note_gateoff
+        ; 1-15 = select instrument and restart wave table
+        cmp #16                         ; MAX #INSTR
+        bcs wavetable_play
+.note_instrument:
+        asl
+        asl
+        tax
+        ; ADSR
+        lda music_instr-4,x
+        sta SID+AD
+        lda music_instr-4+1,x
+        sta SID+SR
+        ; restart wave table
+        lda music_instr-4+2,x
+        sta wavetable_offset
+        ; frequency
+        lda music_instr-4+3,x
+        sta SID+FREQL
+        sta SID+FREQH
+        bne wavetable_play
+
+.note_gateoff:
+        lda SID+WAVE
+        and #$FE
+        sta SID+WAVE
+wavetable_play:
+        ; cycle wave table
+        ldx wavetable_offset
+        lda music_wavetable,x
+        cmp #$FF
+        beq .wavetable_done
+        sta SID+WAVE
+        inc wavetable_offset
+.wavetable_done:
+        rts
 
         ; shadow copy of SID registers
 SID:    !fill 25,0
 
         ; music counters
-voice_0_pattern_offset:
+pattern_offset:
         !byte 0
-voice_0_wavetable_offset:
+wavetable_offset:
         !byte 0
 
 ;---------------------------
@@ -124,8 +147,9 @@ voice_0_wavetable_offset:
 ;---------------------------
 
 music_instr:
-        ; AD,SR,wavetable_offset,0
-        !byte $00,$F4,0,0
+        ; AD,SR,wavetable_offset,freq
+        !byte $00,$60,0,$FF               ; tick
+        !byte $21,$83,3,$C0               ; snare
 
 ;---------------------------
 ; wave table
@@ -133,6 +157,14 @@ music_instr:
 
 music_wavetable:
         !byte $81           ; waveform
+        !byte $80           ; waveform
+        !byte $FF           ; stop
+
+        !byte $81           ; waveform
+        !byte $81           ; waveform
+        !byte $81           ; waveform
+        !byte $81           ; waveform
+        !byte $80           ; waveform
         !byte $FF           ; stop
 
 ;---------------------------
@@ -140,10 +172,10 @@ music_wavetable:
 ;---------------------------
 
 music_pattern:
-        !byte 1,0,0,0,0,0, $ff,0,0,0,0,0, 0,0,0,0,0,0, 0,0,0,0,0,0
-        !byte 1,0,0,0,0,0, 0,0,0,0,0,0, 0,0,0,0,0,0, 0,0,0,0,0,0
-        !byte 1,0,0,0,0,0, 0,0,0,0,0,0, 0,0,0,0,0,0, 0,0,0,0,0,0
-        !byte 1,0,0,0,0,0, 0,0,0,0,0,0, 0,0,0,0,0,0, 0,0,0,0,0,0
+        !byte 1,0,0,0,0,0, 1,0,0,0,0,0, 1,0,0,0,0,0, 1,0,0,0,0,0
+        !byte 2,0,0,0,0,0, 1,0,0,0,0,0, 1,0,0,0,0,0, 1,0,0,0,0,0
+        !byte 1,0,0,0,0,0, 1,0,0,0,0,0, 1,0,0,0,0,0, 1,0,0,0,0,0
+        !byte 2,0,0,0,0,0, 1,0,0,0,2,0, 0,0,0,0,2,0, 2,0,0,2,0,0
 
 ; docs
 
@@ -152,6 +184,7 @@ music_pattern:
 ; $D401/54273/SID+1     Voice 1: Frequency Control - High-Byte
 ; $D402/54274/SID+2     Voice 1: Pulse Waveform Width - Low-Byte
 ; $D403/54275/SID+3     Voice 1: Pulse Waveform Width - High-Nybble (4-bits)
+   12-bit pulse waveform duty cycle 0..4095
 ; $D404/54276/SID+4     Voice 1: Control Register
    | Bit 7 |   Select Random Noise Waveform, 1 = On               |
    | Bit 6 |   Select Pulse Waveform, 1 = On                      |
@@ -179,6 +212,7 @@ music_pattern:
 ; $D414/54292/SID+20    Voice 3: Sustain / Release Cycle Control
 ; $D415/54293/SID+21    Filter Cutoff Frequency: Low-Nybble (3-bits)
 ; $D416/54294/SID+22    Filter Cutoff Frequency: High-Byte
+   FREQUENCY = (REGISTER VALUE * 5.8) + 30 Hz 11-bits, highest 8 in d416 + 3 lowest in d415 0..2047
 ; $D417/54295/SID+23    Filter Resonance Control / Voice Input Control
    | Bits 7-4 |   Select Filter Resonance: 0-15 (linear steps)    |
    | Bits 3   |   Filter External Input: 1 = Yes, 0 = No          |
