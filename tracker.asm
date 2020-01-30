@@ -24,6 +24,37 @@ start:
         cpx #24
         bne -
 
+        ; lowercase
+        lda $D018
+        ora #2
+        sta $D018
+
+        ldx #0
+.lp1    lda notes,x
+        sta $0400+23*40,x
+        lda notes+24,x
+        sta $0400+24*40,x
+        inx
+        cpx #24
+        bne .lp1
+
+        ldx #0
+.lp2    lda instrument_example,x
+        sta $0400+23+40,x
+        lda instrument_example+16,x
+        sta $0400+23+80,x
+        lda instrument_example+32,x
+        sta $0400+23+120,x
+        inx
+        cpx #16
+        bne .lp2
+        ; simulate cursor
+        lda $0400+23+80
+        ora #$80
+        sta $0400+23+80
+        lda #$07
+        sta $D800+23+80
+
         ; in interrupt
         sei
 --      lda $D012
@@ -35,6 +66,35 @@ start:
         dec $D020
         dec $D021
         jmp --
+
+notes:
+        !scr "C-C#D-D#E-F-F#G-G#A-A#B-"
+        !scr "C-DbD-EbE-F-GbG-AbA-BbB-"
+
+instrument_example:
+        !scr "WV FQ ADSR      "
+        !scr "03 C0 2583 Snare"
+        !scr "03:8181818180FF "
+
+
+; PAL frequency table (8 * 12 = 96 notes)
+nt_freqtbl:
+        !word $0117,$0127,$0139,$014b,$015f,$0174
+        !word $018a,$01a1,$01ba,$01d4,$01f0,$020e
+        !word $022d,$024e,$0271,$0296,$02be,$02e8
+        !word $0314,$0343,$0374,$03a9,$03e1,$041c
+        !word $045a,$049c,$04e2,$052d,$057c,$05cf
+        !word $0628,$0685,$06e8,$0752,$07c1,$0837
+        !word $08b4,$0939,$09c5,$0a5a,$0af7,$0b9e
+        !word $0c4f,$0d0a,$0dd1,$0ea3,$0f82,$106e
+        !word $1168,$1271,$138a,$14b3,$15ee,$173c
+        !word $189e,$1a15,$1ba2,$1d46,$1f04,$20dc
+        !word $22d0,$24e2,$2714,$2967,$2bdd,$2e79
+        !word $313c,$3429,$3744,$3a8d,$3e08,$41b8
+        !word $45a1,$49c5,$4e28,$52cd,$57ba,$5cf1
+        !word $6278,$6853,$6e87,$751a,$7c10,$8371
+        !word $8b42,$9389,$9c4f,$a59b,$af74,$b9e2
+        !word $c4f0,$d0a6,$dd0e,$ea33,$f820,$ffff
 
 
 ;---------------------------
@@ -81,7 +141,12 @@ music_play:
         inx
         cpx #7
         bcc -
-        lda #$0F                        ; master volume and filter mode
+        sta $D415                       ; filter freq (low 3 bits)
+        lda #$40                        ; filter frequency (high 8 bits)
+        sta $D416
+        lda #$00                        ; X0 resonance; 01=voice1 02=voice2 04=voice3
+        sta $D417
+        lda #$0F                        ; 0X volume; filter 10=lp 20=bp 40=hp
         sta $D418
         bne pattern_play
 
@@ -155,6 +220,25 @@ wavetable_play:
 .wavetable_done:
         rts
 
+; 8 octaves of 12 notes = 2 * 8 * 12 = 192 = $C0 bytes
+; 8 octaves of 7 notes  = 2 * 8 * 7  = 112 = $70 bytes
+freq_table:
+        !word $0117,$0127,$0139,$014b,$015f,$0174
+        !word $018a,$01a1,$01ba,$01d4,$01f0,$020e
+        !word $022d,$024e,$0271,$0296,$02be,$02e8
+        !word $0314,$0343,$0374,$03a9,$03e1,$041c
+        !word $045a,$049c,$04e2,$052d,$057c,$05cf
+        !word $0628,$0685,$06e8,$0752,$07c1,$0837
+        !word $08b4,$0939,$09c5,$0a5a,$0af7,$0b9e
+        !word $0c4f,$0d0a,$0dd1,$0ea3,$0f82,$106e
+        !word $1168,$1271,$138a,$14b3,$15ee,$173c
+        !word $189e,$1a15,$1ba2,$1d46,$1f04,$20dc
+        !word $22d0,$24e2,$2714,$2967,$2bdd,$2e79
+        !word $313c,$3429,$3744,$3a8d,$3e08,$41b8
+        !word $45a1,$49c5,$4e28,$52cd,$57ba,$5cf1
+        !word $6278,$6853,$6e87,$751a,$7c10,$8371
+        !word $8b42,$9389,$9c4f,$a59b,$af74,$b9e2
+        !word $c4f0,$d0a6,$dd0e,$ea33,$f820,$ffff
 
 ;---------------------------
 ; MUSIC DATA
@@ -169,7 +253,7 @@ wavetable_play:
 music_instr:
         ; AD,SR,wavetable_offset,freq
         !byte $00,$60,0,$FF               ; tick
-        !byte $21,$83,3,$C0               ; snare
+        !byte $25,$83,3,$C0               ; snare
 
 ;-------------
 ; wave tables
@@ -234,7 +318,9 @@ music_pattern:
 ; $D414/54292/SID+20    Voice 3: Sustain / Release Cycle Control
 ; $D415/54293/SID+21    Filter Cutoff Frequency: Low-Nybble (3-bits)
 ; $D416/54294/SID+22    Filter Cutoff Frequency: High-Byte
-   FREQUENCY = (REGISTER VALUE * 5.8) + 30 Hz 11-bits, highest 8 in d416 + 3 lowest in d415 0..2047
+   FREQUENCY = (REGISTER VALUE * 5.8) + 30 Hz 11-bits, highest 8 in d416 + 3 lowest in d415
+   values range from 0..2047 or 0..$800 corresponding to 30 Hz to 12000 Hz
+   Voice frequency ranges from 16 Hz to 4000 Hz but you get higher harmonics
 ; $D417/54295/SID+23    Filter Resonance Control / Voice Input Control
    | Bits 7-4 |   Select Filter Resonance: 0-15 (linear steps)    |
    | Bits 3   |   Filter External Input: 1 = Yes, 0 = No          |
