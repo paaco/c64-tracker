@@ -1,0 +1,71 @@
+Brain dump
+==========
+
+A
+A# / Bb
+B
+C
+C# / Db
+D
+D# / Eb
+E
+F
+F# / Gb
+G
+G# / Ab
+A
+A# / Bb
+B
+
+minor: 0    2    1    2    2    1    2    2
+major: 0    2    2    1    2    2    2    1
+
+Gmin:  G    A    Bb   C    D    Eb   F    G
+       Gmin Adim Bb   Cmin Dmin Eb   F    Gmin
+
+A key always uses each letter; this determines if # or b is selected
+
+Chord names are based on the semi-tones between notes of the scale:
+maj 0 4 7
+min 0 3 7
+dim 0 3 6
+aug 0 4 8
+
+
+Player
+------
+
+ARP could count up from ROOT note. Since there are only 7 notes 'in key' this provides 2 octaves:
+Note-value: 0 1 2 3 4 5 6 7 8 9 A B C D E F (value 'F' is free if you max out at 2 octaves)
+Note:       G A BbC D EbF G A BbC D EbF G
+
+TODO:
+- See http://archive.6502.org/datasheets/mos_6581_sid.pdf 
+- music_init restart song
+- instrument frequency -> note offset
+- ARP/bass line notes
+- (ARP) key (12 notes minor + major = 24 possibilities)(global?)
+- (ARP) octave (freqs range from C-0 ($01?? )to B-7 ($1F???), so 8 octaves = 3 bits)
+- pattern bytes:
+  - 00     = do nothing
+  - Y1..YF = instrument (X-1=0..14) plays note Y (0=root, 1=root+1 in key, ... up to E)
+  - F0..FE = delay X+1 raster lines (00 does nothing, F0 waits 2 lines, FE waits 16) for pattern compression
+  - FF     = explicit gate-off
+- waveforms 00..0F don't make any sound so could be used for other purposes
+- waveforms 90..FF should not be used because noise can't be combined with others
+  - 00     = stop (that would free the current FF stop)
+  - 10..8F = waveform
+  - 9x     = set pulse width to x00
+  - Ax
+  - Bx
+  - Cx
+  - Dx
+  - Ex
+  - Fx     = step backwards (FF goes back 1, F0 goes back 16 steps) for wavetable loop
+- toneportamento (don't retrigger wavetable, only change frequency)
+- pattern compression
+- frequency pitch bending / vibrato / slide
+- pulse width modulation
+- filter settings & modulation
+DONE:
+- ZP $50-$70 usable (as long as you don't use BASIC FP at the same time)

@@ -3,15 +3,7 @@
 ;
 
 ; layout:
-;  4 rijen van 24 dots. Dit zijn alle ticks
-
-FREQL = 0
-FREQH = 1
-PWL = 2
-PWH = 3
-WAVE = 4
-AD = 5
-SR = 6
+;  4 rows of 4 x 6 dots, all raster ticks in a 16-row bar
 
         * = $0801
         !byte $0c,$08,<2020,>2020,$9e,$20,$32,$30,$36,$32,$00,$00,$00
@@ -32,7 +24,7 @@ start:
         cpx #24
         bne -
 
-        ; in de interrupt
+        ; in interrupt
         sei
 --      lda $D012
         cmp #$80
@@ -44,9 +36,20 @@ start:
         dec $D021
         jmp --
 
+
 ;---------------------------
 ; player
 ;---------------------------
+
+!addr SID = $50                         ; shadow copy of 3x7 SID registers in ZP
+
+FREQL = 0
+FREQH = 1
+PWL = 2
+PWH = 3
+WAVE = 4
+AD = 5
+SR = 6
 
         * = $1000
 
@@ -55,13 +58,14 @@ music_init:
         bcc .music_init
 
 music_play:
-        ; copy SID registers from previous call
         lda SID+FREQL
         sta $D400+FREQL
         lda SID+FREQH
         sta $D400+FREQH
         lda SID+WAVE
         sta $D400+WAVE
+        lsr
+        bcc pattern_play                ; skip ADSR on gate-off
         lda SID+AD
         sta $D400+AD
         lda SID+SR
@@ -75,11 +79,29 @@ music_play:
 -       sta SID,x
         sta $D400,x
         inx
-        cpx #$18
+        cpx #7
         bcc -
-        bne pattern_play
         lda #$0F                        ; master volume and filter mode
-        bne -
+        sta $D418
+        bne pattern_play
+
+
+;--------------
+; dynamic data and ptrs to music data go in first page for easier relocation
+;--------------
+
+; counters for each voice
+pattern_offset:
+        !byte 0
+wavetable_offset:
+        !byte 0
+note_offset:
+        !byte 0
+
+
+;----------------
+; pattern player
+;----------------
 
 pattern_play:
         inc pattern_offset
@@ -133,27 +155,25 @@ wavetable_play:
 .wavetable_done:
         rts
 
-        ; shadow copy of SID registers
-SID:    !fill 25,0
-
-        ; music counters
-pattern_offset:
-        !byte 0
-wavetable_offset:
-        !byte 0
 
 ;---------------------------
+; MUSIC DATA
+;---------------------------
+
+        * = $1200
+
+;-------------
 ; instruments
-;---------------------------
+;-------------
 
 music_instr:
         ; AD,SR,wavetable_offset,freq
         !byte $00,$60,0,$FF               ; tick
         !byte $21,$83,3,$C0               ; snare
 
-;---------------------------
-; wave table
-;---------------------------
+;-------------
+; wave tables
+;-------------
 
 music_wavetable:
         !byte $81           ; waveform
@@ -167,10 +187,11 @@ music_wavetable:
         !byte $80           ; waveform
         !byte $FF           ; stop
 
-;---------------------------
+;----------
 ; patterns
-;---------------------------
+;----------
 
+; 6 * 4 * 4 bytes = 96 bytes per pattern, max 96*256 = 24576 ($6000) bytes uncompressed
 music_pattern:
         !byte 1,0,0,0,0,0, 1,0,0,0,0,0, 1,0,0,0,0,0, 1,0,0,0,0,0
         !byte 2,0,0,0,0,0, 1,0,0,0,0,0, 1,0,0,0,0,0, 1,0,0,0,0,0
@@ -185,6 +206,7 @@ music_pattern:
 ; $D402/54274/SID+2     Voice 1: Pulse Waveform Width - Low-Byte
 ; $D403/54275/SID+3     Voice 1: Pulse Waveform Width - High-Nybble (4-bits)
    12-bit pulse waveform duty cycle 0..4095
+   A value of 0  or 4095  ($FFF)  in  the  Pulse Width registers  will  produce a  constant  DC output
 ; $D404/54276/SID+4     Voice 1: Control Register
    | Bit 7 |   Select Random Noise Waveform, 1 = On               |
    | Bit 6 |   Select Pulse Waveform, 1 = On                      |
