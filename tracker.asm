@@ -9,6 +9,9 @@
         !byte $0c,$08,<2020,>2020,$9e,$20,$32,$30,$36,$32,$00,$00,$00
 start:
         jsr music_init
+;--      jsr music_play ; DEBUG
+;        jmp --         ; DEBUG
+
         jsr $E544
 
         ldx #0
@@ -148,6 +151,8 @@ music_play:
         sta $D417
         lda #$0F                        ; 0X volume; filter 10=lp 20=bp 40=hp
         sta $D418
+        lda #$FF                        ; reset song
+        sta pattern_offset
         bne pattern_play
 
 
@@ -169,59 +174,68 @@ note_offset:
 ;----------------
 
 pattern_play:
-        inc pattern_offset
         ldx pattern_offset
-        cpx #24*4                       ; PATTERN LENGTH
-        bne +
+        inx
+        cpx #6*4*4                       ; PATTERN LENGTH
+        bne .do_note
         ; restart pattern
-        lda #0
-        sta pattern_offset
-        tax
-
-+       lda music_pattern,x
-        ; 0 = do nothing
-        beq wavetable_play
-        ; 255 = gate off
-        cmp #$FF
+        ldx #0
+.do_note:
+        stx pattern_offset
+        lda music_pattern,x
+        ; patt 00 = do nothing
+        beq .do_wavetable
+        ; patt 0F = gate off
+        cmp #$0F
         beq .note_gateoff
-        ; 1-15 = select instrument and restart wave table
-        cmp #16                         ; MAX #INSTR
-        bcs wavetable_play
+        cmp #$1F
+        bcs .do_wavetable
+        ; patt 10-1F = play instrument 0X at root-note and restart wave table
 .note_instrument:
+        and #$0F
         asl
         asl
         tax
         ; ADSR
-        lda music_instr-4,x
+        lda music_instr,x
         sta SID+AD
-        lda music_instr-4+1,x
+        lda music_instr+1,x
         sta SID+SR
         ; restart wave table
-        lda music_instr-4+2,x
+        lda music_instr+2,x
         sta wavetable_offset
-        ; frequency
-        lda music_instr-4+3,x
+        ; root-note
+        lda music_instr+3,x
+        asl
+        tax
+        lda freq_table,x
         sta SID+FREQL
+        lda freq_table+1,x
         sta SID+FREQH
-        bne wavetable_play
-
+        bne .do_wavetable
 .note_gateoff:
         lda SID+WAVE
         and #$FE
         sta SID+WAVE
-wavetable_play:
+.do_wavetable:
         ; cycle wave table
         ldx wavetable_offset
         lda music_wavetable,x
-        cmp #$FF
+        ; wavetable 00 = end
         beq .wavetable_done
+.wavetable_wave:
         sta SID+WAVE
         inc wavetable_offset
 .wavetable_done:
         rts
 
+;---------------------------
+; MUSIC DATA
+;---------------------------
+
+        * = $1200
+
 ; 8 octaves of 12 notes = 2 * 8 * 12 = 192 = $C0 bytes
-; 8 octaves of 7 notes  = 2 * 8 * 7  = 112 = $70 bytes
 freq_table:
         !word $0117,$0127,$0139,$014b,$015f,$0174
         !word $018a,$01a1,$01ba,$01d4,$01f0,$020e
@@ -238,22 +252,17 @@ freq_table:
         !word $45a1,$49c5,$4e28,$52cd,$57ba,$5cf1
         !word $6278,$6853,$6e87,$751a,$7c10,$8371
         !word $8b42,$9389,$9c4f,$a59b,$af74,$b9e2
-        !word $c4f0,$d0a6,$dd0e,$ea33,$f820,$ffff
-
-;---------------------------
-; MUSIC DATA
-;---------------------------
-
-        * = $1200
+        !word $c4f0,$d0a6,$dd0e,$ea33,$f820,$ffff ; 95
+; OR 8 octaves of 7 notes would be  = 2 * 8 * 7  = 112 = $70 bytes
 
 ;-------------
 ; instruments
 ;-------------
 
 music_instr:
-        ; AD,SR,wavetable_offset,freq
-        !byte $00,$60,0,$FF               ; tick
-        !byte $25,$83,3,$C0               ; snare
+        ; AD,SR,wavetable_offset,root-note
+        !byte $00,$60,0,95               ; tick
+        !byte $25,$83,3,90               ; snare
 
 ;-------------
 ; wave tables
@@ -262,14 +271,18 @@ music_instr:
 music_wavetable:
         !byte $81           ; waveform
         !byte $80           ; waveform
-        !byte $FF           ; stop
+        !byte $00           ; stop
 
         !byte $81           ; waveform
         !byte $81           ; waveform
         !byte $81           ; waveform
         !byte $81           ; waveform
         !byte $80           ; waveform
-        !byte $FF           ; stop
+        !byte $00           ; stop
+
+;----------
+; tracks
+;----------
 
 ;----------
 ; patterns
@@ -277,10 +290,10 @@ music_wavetable:
 
 ; 6 * 4 * 4 bytes = 96 bytes per pattern, max 96*256 = 24576 ($6000) bytes uncompressed
 music_pattern:
-        !byte 1,0,0,0,0,0, 1,0,0,0,0,0, 1,0,0,0,0,0, 1,0,0,0,0,0
-        !byte 2,0,0,0,0,0, 1,0,0,0,0,0, 1,0,0,0,0,0, 1,0,0,0,0,0
-        !byte 1,0,0,0,0,0, 1,0,0,0,0,0, 1,0,0,0,0,0, 1,0,0,0,0,0
-        !byte 2,0,0,0,0,0, 1,0,0,0,2,0, 0,0,0,0,2,0, 2,0,0,2,0,0
+        !byte $10,0,0,0,0,0, $10,0,0,0,0,0, $10,0,0,0,0,0, $10,0,0,0,0,0
+        !byte $11,0,0,0,0,0, $10,0,0,0,0,0, $10,0,0,0,0,0, $10,0,0,0,0,0
+        !byte $10,0,0,0,0,0, $10,0,0,0,0,0, $10,0,0,0,0,0, $10,0,0,0,0,0
+        !byte $11,0,0,0,0,0, $10,0,0,0,$11,0, 0,0,0,0,$11,0, $11,0,0,$11,0,0
 
 ; docs
 
