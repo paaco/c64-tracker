@@ -8,6 +8,12 @@
         * = $0801
         !byte $0c,$08,<2020,>2020,$9e,$20,$32,$30,$36,$32,$00,$00,$00
 start:
+;        lda #11 ; B      DEBUG
+;        ldy #0 ; major
+;        jsr calc_scale
+;        ldx #1 ; b-scale
+;        jmp calc_names
+
         jsr music_init
 ;--      jsr music_play ; DEBUG
 ;        jmp --         ; DEBUG
@@ -70,7 +76,76 @@ start:
         dec $D021
         jmp --
 
+
+; A=key note (0=C, 1=C#, etc, 11=B)
+; Y=0 for major scale, Y=5 for minor scale
+calc_scale:
+        ; determine starting note
+        cmp #2              ; C or C# is OK
+        bcc .scale_make     ; lt
+        clc
+        adc scale_steps,y
+        cmp #12
+        bcc +               ; lt
+        sbc #12
++       iny
+        cpy #7
+        bne calc_scale
+        ldy #0
+        beq calc_scale
+.scale_make:
+        ; A = starting note (0 or 1), Y = position in scale steps (0..6), C=0
+        ldx #0
+-       sta scale_indices,x
+        adc scale_steps,y
+        iny
+        cpy #7
+        bne +
+        ldy #0
++       inx
+        cpx #7
+        bne -
+        rts
+
+; Use X=0 for #, X=1 for b
+calc_names:
+        ldy #0
+.next:  lda scale_indices,y
+        sec
+        sbc scale_wholes,x
+        cpx #7
+        bne +
+        ldx #0
++       sta scale_names,x
+        inx
+        iny
+        cpy #7
+        bne .next
+        rts
+
+; major scale steps start at index #0, minor scale steps start at index #5
+scale_steps:
+        !byte 2,2,1,2,2,2,1
+
+scale_wholes:
+        !byte 0,2,4,5,7,9,11,12
+;             C,D,E,F,G,A,B
+
+; the 7 notes indices (0..11) of the calculated scale in ascending order
+scale_indices:
+        !byte 0,0,0,0,0,0,0
+;             C,D,E,F,G,A,B
+
+; the 7 note signs (00 is whole, FF is b, 01 is #)
+scale_names:
+        !byte 0,0,0,0,0,0,0
+
+
 notes:
+; key B/g#  with 5#/7b contains Fb and Cb
+; key F#/gb with 6#/6b contains both F and F#, making the former E#. Key gb has Cb instead of B
+; key Db/bb with 7#/5b contains E# and B#
+;             0 1 2 3 4 5 6 7 8 9 1011
         !scr "C-C#D-D#E-F-F#G-G#A-A#B-"
         !scr "C-DbD-EbE-F-GbG-AbA-BbB-"
 
