@@ -8,11 +8,20 @@
         * = $0801
         !byte $0c,$08,<2020,>2020,$9e,$20,$32,$30,$36,$32,$00,$00,$00
 start:
-;        lda #11 ; B      DEBUG
-;        ldy #0 ; major
-;        jsr calc_scale
-;        ldx #1 ; b-scale
-;        jmp calc_names
+        ; lda #0 ; C      DEBUG
+        ; ldy #5 ; 0=major 5=minor
+        ; jsr calc_scale
+        ; ldx #1 ; b-signs
+        ; jsr calc_signs
+        ; ; D (actually the calculated note name C=0,D=1..B=6)
+        ; lda scale_indices+1
+        ; sta calc_chord_input
+        ; lda scale_indices+3
+        ; sta calc_chord_input+1
+        ; lda scale_indices+5
+        ; sta calc_chord_input+2
+        ; jsr calc_chord
+        ; jmp calc_chord_2
 
         jsr music_init
 ;--      jsr music_play ; DEBUG
@@ -108,7 +117,8 @@ calc_scale:
         rts
 
 ; Use X=0 for #, X=1 for b
-calc_names:
+; Generates 7 scale_signs with $FF for b, $00 for whole and $01 for #
+calc_signs:
         ldy #0
 .next:  lda scale_indices,y
         sec
@@ -116,7 +126,7 @@ calc_names:
         cpx #7
         bne +
         ldx #0
-+       sta scale_names,x
++       sta scale_signs,x
         inx
         iny
         cpy #7
@@ -137,8 +147,69 @@ scale_indices:
 ;             C,D,E,F,G,A,B
 
 ; the 7 note signs (00 is whole, FF is b, 01 is #)
-scale_names:
+scale_signs:
         !byte 0,0,0,0,0,0,0
+
+calc_chord_input: !byte 0,0,0
+
+; Calculate chord names for each of the 7 indices
+; Names depend on the step difference to the second and third note of the chord
+; Input: 3 note indices (ascending) in calc_chord_input,+1,+2
+; Output: A=0 unknown, 1=dim(036), 2=min(037), 3=maj(047), 4=aug(048)
+calc_chord: ; 58 bytes
+        lda calc_chord_input+1
+        sec
+        sbc calc_chord_input
+        cmp #3
+        beq .chord_dim_min
+        cmp #4
+        beq .chord_maj_aug
+.chord_unknown:
+        lda #0
+        rts
+.chord_dim_min:
+        lda calc_chord_input+2
+        sbc calc_chord_input
+        cmp #7
+        bne .chord_dim
+        lda #2 ; MIN
+        rts
+.chord_dim:
+        cmp #6
+        bne .chord_unknown
+        lda #1 ; DIM
+        rts
+.chord_maj_aug:
+        lda calc_chord_input+2
+        sbc calc_chord_input
+        cmp #7
+        bne .chord_aug
+        lda #3 ; MAJ
+        rts
+.chord_aug:
+        cmp #8
+        bne .chord_unknown
+        lda #4 ; AUG
+        rts
+
+; Input: 3 note indices (ascending) in calc_chord_input,+1,+2
+; Output: A=0 unknown, 1=dim(036), 2=min(037), 3=maj(047), 4=aug(048)
+calc_chord_2:
+        lda calc_chord_input+1
+        clc
+        adc calc_chord_input+2
+        sec
+        sbc calc_chord_input
+        sbc calc_chord_input
+        sbc #8
+        beq .chord_invalid ; eq (A=0)
+        bcc .chord_invalid ; lt (A<0)
+        cmp #5
+        bcc .chord_ok      ; lt (A<5)
+.chord_invalid:
+        lda #0
+.chord_ok:
+        rts
 
 
 notes:
