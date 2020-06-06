@@ -93,47 +93,64 @@ music_play:
             sta SID+SR,x
             lda music_instruments+INS_PM,y
             sta v1pulsemod,x
+            lda music_instruments+INS_FM,y
+            sta v1sweeph,x
             lda music_instruments+INS_P0,y
             sta v1pulse,x
             beq +                   ; don't set pulsewidth if 0
             jsr .set_pulsewidth
-+           lda music_instruments+INS_FF,y
-            tay
-            bne +
-            ldy v1note,x
++           ; peek wavetable for 8F
+            ldy v1waveidx,x
+            lda music_wavetable,y
+            cmp #$8F
+            beq .do_init_8F
+
+.setfreq:   ldy v1note,x
             ; set note frequency
-+           lda music_freq_lo,y
+            lda music_freq_lo,y
             sta SID+FL,x
             lda music_freq_hi,y
             sta SID+FH,x
             sta v1freqh,x
             ; fall-through
-
 .do_wavetable:
             ldy v1waveidx,x
             lda music_wavetable,y
-            beq ++
+            beq .done
+            cmp #$8F
+            beq .do_wave_8F
 +           sta SID+WV,x
             inc v1waveidx,x
-++          rts
-
-            ; TODO include code ---------------------------------------------
-
-            ; freq sweep
-            lda v1sweeph,x
-            beq +
-            clc
-            adc v1freqh,x
-            sta v1freqh,x
-            sta SID+FH,x
-            ; pulse modulate
-+           lda v1pulsemod,x
+            ; TODO pulsemod
+            lda v1pulsemod,x
             beq +
             clc
             adc v1pulse,x
             sta v1pulse,x
-+
-            ; TODO /include code --------------------------------------------
+            jsr .set_pulsewidth
+            ; frequency sweep
++           lda v1sweeph,x
+            beq .done
+            clc
+            adc v1freqh,x
+            bcs .set_highf ; freq ok
+            ; hold at 0
+            lda #0
+            beq .set_highf
+.done:      rts
+
+            ; 8F is 81 FFFF
+.do_init_8F:
+            lda #$81
+            sta SID+WV,x
+            lda #$FF
+            sta SID+FL,x
+.set_highf: sta SID+FH,x
+            sta v1freqh,x
+            rts ; end, no wavetable
+.do_wave_8F:
+            inc v1waveidx,x
+            bne .setfreq            ; jmp always
 
 .set_pulsewidth:
             bpl +
@@ -197,17 +214,17 @@ INS_WT = 2 ; wavetable offset
 INS_P0 = 3 ; instrument pulse-width init
 INS_PM = 4 ; instrument pulse-width modulate
 INS_RN = 5 ; root note
-INS_FF = 6 ; <>0 first frequency override use 28 for FFFF
+INS_FM = 6 ; freqh add (holds on overflow)
 
 ; instruments ($10 bytes each)
 music_instruments:
         !fill 16,0 ; instrument 0 is not used
-;               AD  SR  WVTBL    P0  PM  RN FF
-        !byte  $02,$C3, WVTBL0, $00,$00,  7, 0, 0,0,0,0,0,0,0,0,0 ; deep tom
-;       !byte  $25,$83, $81,    $00,$00,  0, 0, 0,0,0,0,0,0,0,0,0 ; snare
-;       !byte  $00,$60, $81,    $00,$00,  0, 0, 0,0,0,0,0,0,0,0,0 ; tick
-;       !byte  $8C,$44, WVTBL1, $3F,$F7,  0, 0, 0,0,0,0,0,0,0,0,0 ; pulse lead
-        !byte  $52,$82, WVTBL1, $20,$F7,  14, 0, 0,0,0,0,0,0,0,0,0 ; pulse bass
+;               AD  SR  WVTBL    P0  PM  RN FM
+        !byte  $00,$E8, WVTBL0, $70,$00, 10,-6,0,0,0,0,0,0,0,0,0 ; deep tom
+        !byte  $25,$E6, WVTBL1, $00,$00, 27, 0,0,0,0,0,0,0,0,0,0 ; snare
+;       !byte  $00,$60, $81,    $00,$00,  0, 0,0,0,0,0,0,0,0,0,0 ; tick
+;       !byte  $52,$82, WVTBL2, $20,$F7, 0, 0,0,0,0,0,0,0,0,0,0 ; pulse bass
+        !byte  $8C,$47, WVTBL2, $3F,$F7, 14, 0,0,0,0,0,0,0,0,0,0 ; pulse lead
 
 ; TODO instrument wavetable
 ;   TODO wavetable freq sweep (drum)
@@ -230,27 +247,26 @@ TRACK_LEN = 32
 ;32 bytes per track (each byte represents 6 rasterlines)
 music_tracks:
         ; drum pattern
-        !byte $10,$00,$00,$14, $14,$00,$14,$00, $14,$00,$00,$00, $00,$00,$00,$00
-        !byte $20,$21,$22,$23, $24,$25,$26,$27, $20,$00,$00,$00, $00,$00,$00,$00
-        !byte $10,$00,$00,$14, $14,$00,$14,$00, $14,$00,$00,$00, $14,$00,$00,$00
+        !byte $17,$00,$00,$17, $20,$00,$17,$00, $17,$00,$00,$00, $20,$00,$00,$00
+        !byte $17,$00,$00,$17, $17,$00,$17,$00, $17,$00,$00,$00, $17,$00,$00,$00
 
 
 ; wavetable is 1 byte per rasterline (max 256 bytes)
 music_wavetable:
         WVTBL0 = *-music_wavetable
-        !byte $81
-        !byte $11
-        ;!byte $AF ; freqh sweep depth 16 (already sweeps)
+        !byte $8F
+        !byte $41
+        !byte $41
         ;!byte 4   ; <16 is delay
-        !byte $11
-        !byte $11
-        !byte $11
-        !byte $11
         !byte $10 ; gate-off
         !byte $00 ; stop
         ;$90-$9F ARP
         ;$A0-$AF sweep down
         WVTBL1 = *-music_wavetable
+        !byte $81
+        !byte $80
+        !byte $00 ; stop
+        WVTBL2 = *-music_wavetable
         !byte $41
         !byte $41
         !byte $41
@@ -268,13 +284,13 @@ music_freq_hi:
         !byte >$08b4,>$09c5,>$0a5a,>$0b9e,>$0d0a,>$0dd1,>$0f82 ; C-3
         !byte >$1168,>$138a,>$14b3,>$173c,>$1a15,>$1ba2,>$1f04 ; C-4
         !byte >$22d0,>$2714,>$2967,>$2e79,>$3429,>$3744,>$3e08 ; C-5
-        !byte $ff ; note 28 is max freq
+        !byte $ff
 music_freq_lo:
         !byte <$045a,<$04e2,<$052d,<$05cf,<$0685,<$06e8,<$07c1 ; C-2
         !byte <$08b4,<$09c5,<$0a5a,<$0b9e,<$0d0a,<$0dd1,<$0f82 ; C-3
         !byte <$1168,<$138a,<$14b3,<$173c,<$1a15,<$1ba2,<$1f04 ; C-4
         !byte <$22d0,<$2714,<$2967,<$2e79,<$3429,<$3744,<$3e08 ; C-5
-        !byte $ff ; note 28 is max freq
+        !byte $ff
 
 
 ; $18 bytes SID init
@@ -282,8 +298,8 @@ music_SID_init:
         !byte 0,0,0,0,0,0,0
         !byte 0,0,0,0,0,0,0
         !byte 0,0,0,0,0,0,0
-        FILTER=0
+        FILTER=40
         !byte (FILTER & $F)     ; filter cutoff bits 3-0
         !byte (FILTER >> 4)     ; filter cutoff bits 11-4
-        !byte $00               ;        reso | ext v3 v2 v1
-        !byte $0F               ; V3 HP BP LP | VOL
+        !byte $C0               ;        reso | ext v3 v2 v1
+        !byte $1F               ; V3 HP BP LP | VOL
