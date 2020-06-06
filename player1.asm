@@ -257,9 +257,9 @@ music_wavetable:
         !byte $8F
         !byte $41
         !byte $41
-        ;!byte 4   ; <16 is delay
         !byte $10 ; gate-off
         !byte $00 ; stop
+        ;$00-$0F is delay
         ;$90-$9F ARP
         ;$A0-$AF sweep down
         WVTBL1 = *-music_wavetable
@@ -298,8 +298,8 @@ music_SID_init:
         !byte 0,0,0,0,0,0,0
         !byte 0,0,0,0,0,0,0
         !byte 0,0,0,0,0,0,0
-        FILTER=40
+        FILTER=20
         !byte (FILTER & $F)     ; filter cutoff bits 3-0
         !byte (FILTER >> 4)     ; filter cutoff bits 11-4
-        !byte $C0               ;        reso | ext v3 v2 v1
-        !byte $1F               ; V3 HP BP LP | VOL
+        !byte $A1               ;        reso | ext v3 v2 v1
+        !byte $5F               ; V3 HP BP LP | VOL
