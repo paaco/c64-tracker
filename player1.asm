@@ -99,30 +99,29 @@ music_play:
             sta v1pulse,x
             beq +                   ; don't set pulsewidth if 0
             jsr .set_pulsewidth
-+           ; peek wavetable for 8F
++           ; peek wavetable for 8F to set 81 FFFF burst
             ldy v1waveidx,x
             lda music_wavetable,y
             cmp #$8F
             beq .do_init_8F
 
 .setfreq:   ldy v1note,x
-            ; set note frequency
-            lda music_freq_lo,y
-            sta SID+FL,x
-            lda music_freq_hi,y
-            sta SID+FH,x
-            sta v1freqh,x
+            jsr .set_note
             ; fall-through
 .do_wavetable:
             ldy v1waveidx,x
             lda music_wavetable,y
-            beq .done
-            cmp #$8F
-            beq .do_wave_8F
-+           sta SID+WV,x
+            beq .done               ; $00 is done (TODO leave pulse mod and freq sweep on)
             inc v1waveidx,x
-            ; TODO pulsemod
-            lda v1pulsemod,x
+            cmp #$8F                ; $8F is 81 FFFF burst
+            beq .setfreq
+            bcc .do_wave            ; <$8F is waveform
+            cmp #$A0
+            bcc .do_arp             ; $90 .. $9F is ARP
+            bcs +                   ; $A0+ ignored
+.do_wave:   sta SID+WV,x
+            ; pulse modulation
++           lda v1pulsemod,x
             beq +
             clc
             adc v1pulse,x
@@ -139,18 +138,27 @@ music_play:
             beq .set_highf
 .done:      rts
 
-            ; 8F is 81 FFFF
 .do_init_8F:
             lda #$81
             sta SID+WV,x
             lda #$FF
             sta SID+FL,x
+            jmp .set_highf
+
+.do_arp:
+            and #$0F
+            ; clc already clear
+            adc v1note,x
+            tay
+            ; fall-through
+.set_note:
+            lda music_freq_lo,y
+            sta SID+FL,x
+            lda music_freq_hi,y
 .set_highf: sta SID+FH,x
             sta v1freqh,x
-            rts ; end, no wavetable
-.do_wave_8F:
-            inc v1waveidx,x
-            bne .setfreq            ; jmp always
+            rts
+
 
 .set_pulsewidth:
             bpl +
@@ -175,7 +183,7 @@ music_play:
             sta SID,x
             dex
             bpl -
-            ; reset song pointers TODO add this to SID_init block?
+            ; reset song pointers
             lda #$FF
             sta trackoff
             lda #$00
@@ -225,16 +233,17 @@ music_instruments:
 ;       !byte  $00,$60, $81,    $00,$00,  0, 0,0,0,0,0,0,0,0,0,0 ; tick
 ;       !byte  $52,$82, WVTBL2, $20,$F7, 0, 0,0,0,0,0,0,0,0,0,0 ; pulse bass
         !byte  $8C,$47, WVTBL2, $3F,$F7, 14, 0,0,0,0,0,0,0,0,0,0 ; pulse lead
+        !byte  $33,$C2, WVTBL3, $00,$00,  7, 0,0,0,0,0,0,0,0,0,0 ; arp
 
 ; TODO instrument wavetable
-;   TODO wavetable freq sweep (drum)
+;   DONE wavetable freq sweep (drum)
 ;   DONE wavetable wave
 ;   TODO wavetable delay
 ;   DONE wavetable end
-;   TODO wavetable hold-until-gateoff (.E?)
+;   TODO wavetable hold-until-gateoff
 ;   TODO wavetable set pulsemod
 ;   TODO wavetable set pulsewidth
-;   TODO wavetable arp
+;   DONE wavetable arp
 ; TODO tracks
 ;   DONE track start instrument at note: A=iiii_nnnn
 ;   TODO track gate-off:                 A=FF
@@ -247,9 +256,8 @@ TRACK_LEN = 32
 ;32 bytes per track (each byte represents 6 rasterlines)
 music_tracks:
         ; drum pattern
-        !byte $17,$00,$00,$17, $20,$00,$17,$00, $17,$00,$00,$00, $20,$00,$00,$00
-        !byte $17,$00,$00,$17, $17,$00,$17,$00, $17,$00,$00,$00, $17,$00,$00,$00
-
+        !byte $17,$00,$40,$17, $17,$00,$17,$00, $17,$00,$40,$00, $00,$00,$00,$00
+        !byte $17,$00,$40,$17, $17,$00,$17,$00, $17,$00,$42,$00, $17,$00,$00,$00
 
 ; wavetable is 1 byte per rasterline (max 256 bytes)
 music_wavetable:
@@ -274,6 +282,15 @@ music_wavetable:
         !byte $41
         !byte $40
         !byte $00 ; stop
+        WVTBL3 = *-music_wavetable
+        !byte $11
+        !byte $92
+        !byte $94
+        !byte $90
+        !byte $92
+        !byte $94
+        !byte $10
+        !byte $00
 
 
 ; 4 octaves of 7 notes octave 2,3,4 and 5 in key Cmin:
