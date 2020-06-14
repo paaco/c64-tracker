@@ -13,6 +13,12 @@
         {
             "type": "asm",
             "request": "launch",
+            "name": "player2",
+            "binary": "${workspaceFolder}/.cache/player2.prg"
+        },
+        {
+            "type": "asm",
+            "request": "launch",
             "name": "tracker",
             "binary": "${workspaceFolder}/.cache/tracker.prg"
         }
