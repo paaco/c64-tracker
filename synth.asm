@@ -18,11 +18,18 @@ start:
 		bne -
 +		ldy #120
 
+		lda #0
+		ldx #0
+-		sta $D400,x
+		inx
+		cpx #$18
+		bne -
+
 		; volume and filter ($10=LP $20=BP $40=HP)
-		lda #$5F
+		lda #$0F
 		sta $D418
 		jsr puthex
-		lda #$F1		; reso + voice (1=v1 2=v2 4=v3)
+		lda #$00		; reso + voice (1=v1 2=v2 4=v3)
 		sta $D417
 		jsr puthex
 		iny
@@ -93,6 +100,9 @@ loop:	jsr waitkey
 		ldx #$20	; saw
 		cmp #$32
 		beq +
+		ldx #$30    ; tri+saw
+		cmp #$33
+		beq +
 		ldx #$40	; pulse
 		cmp #$34
 		beq +
@@ -120,7 +130,7 @@ loop:	jsr waitkey
 		jmp loop
 
 ;		      1234567890123456789012345678901234567890
-text:	!scr "1/2/4/8=wave q=quit                synth"
+text:	!scr "1/2/3/4/8=wave q=quit              synth"
         !scr "                                        "
 		!scr "fmrv filt puls  adsr freq wv"
 		!scr 0
